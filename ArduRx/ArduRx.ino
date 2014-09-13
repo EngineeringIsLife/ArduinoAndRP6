@@ -9,8 +9,8 @@
 #define COMIN_LEFT   103
 #define COMIN_BWD    104
 
-#define COM_STOP     4  // Sofort anhalten
-#define COM_CHDIR    6  // Richtung ändern
+#define COM_STOP     4  // Stop movement
+#define COM_CHDIR    6  // Change direction
 #define COM_MOVSPEED 5  // Move at speed
 #define COM_SETLED   3  // Set LEDs
 
@@ -24,8 +24,6 @@
 #define BITRATE  1000
 
 long startingTime;
-long msgCount = 0;
-long msgCountLoss = 0;
 
 struct direct {
   char directionID;
@@ -41,7 +39,6 @@ direct right = {DIR_RBWD, 0b000111, 0x20};
 void setup()
 {
     Serial.begin(9600);	// Debugging only
-    Serial.println("setup");
     
     Wire.begin();
     pinMode(13, OUTPUT);
@@ -62,36 +59,27 @@ void loop()
     uint8_t buflen = VW_MAX_MESSAGE_LEN;
     char c[VW_MAX_MESSAGE_LEN];
 
-    if (vw_get_message(buf, &buflen)) // Non-blocking
+    if (vw_get_message(buf, &buflen))
     {
-	int i;
-        msgCount++;
-
-        digitalWrite(13, HIGH); // Flash a light to show received good message
-	// Message with a good checksum received, dump it.
-	Serial.print("Got: ");
+        digitalWrite(13, HIGH);
 	
-	for (i = 0; i < buflen; i++)
+        Serial.println("Received: ");
+	for (int i = 0; i < buflen; i++)
 	{
 	    Serial.print(buf[i], HEX);
 	    Serial.print(" ");
 	}
-        if (buf[0] != 'c') sendCommand(buf[0]);  //COMIN_FWD);
-        else sendCommand(COMIN_STOP);
-        Serial.print("  Loss-Ratio: ");
-        Serial.print((float)(msgCountLoss/msgCount));
-        Serial.print("   ");
-        Serial.print(millis()-startingTime);
+
+        sendCommand(buf[0]);
         Serial.println("");
         digitalWrite(13, LOW);
         startingTime = millis();
     }
 
     if (millis()-startingTime > MSG_LOST) {
-        Serial.println("Nachricht verloren");
-        startingTime += MSG_RATE;
-        msgCountLoss++;
+        Serial.println("No message received");
         sendCommand(COMIN_STOP);
+        startingTime = millis();
     }
 }
 
@@ -100,12 +88,6 @@ void sendCommand(char command)
   int erg;
   
   switch (command) {
-    case COMIN_STOP:
-      sendCommandStop();
-      delay(5);
-      sendCommandLED(0b010010);
-      break;
-      
     case COMIN_FWD:
       execCommandMovement(fwd);
       break;
@@ -120,16 +102,23 @@ void sendCommand(char command)
       
     case COMIN_LEFT:
       execCommandMovement(left);
-      break;    
+      break;
+      
+    case COMIN_STOP:
+    default:
+      sendCommandStop();
+      delay(5);
+      sendCommandLED(0b010010);
+      break;
   }
 }
 
 void execCommandMovement(struct direct dir)
 {
-  static int richtung = -1;
-  if (richtung != dir.directionID) {
+  static int direction = -1;
+  if (direction != dir.directionID) {
     sendCommandChDir(dir.directionID);
-    richtung = dir.directionID;
+    direction = dir.directionID;
     delay(5);
   }        
   sendCommandMove(dir.speed);
@@ -142,7 +131,7 @@ void sendCommandStop(void)
   Wire.beginTransmission(ADD_RP6);
   Wire.write(0x00);
   Wire.write(COM_STOP);
-  if (Wire.endTransmission(ADD_RP6) != 0) Serial.println("Fehler beim Übertragen des Stopbefehls");
+  if (Wire.endTransmission() != 0) Serial.println("Error on transmission of command STOP");
 }
 
 void sendCommandMove(char speed)
@@ -152,7 +141,7 @@ void sendCommandMove(char speed)
   Wire.write(COM_MOVSPEED);
   Wire.write(speed);
   Wire.write(speed);
-  if (Wire.endTransmission(ADD_RP6) != 0) Serial.println("Fehler beim Übertragen des Bewegungsbefehls");
+  if (Wire.endTransmission() != 0) Serial.println("Error on transmission of command MOVEATSPEED");
 }
 
 void sendCommandChDir(char dir)
@@ -161,7 +150,7 @@ void sendCommandChDir(char dir)
   Wire.write(0x00);
   Wire.write(COM_CHDIR);
   Wire.write(dir);
-  if (Wire.endTransmission(ADD_RP6) != 0) Serial.println("Fehler beim Übertragen der Bewegungsrichtung");
+  if (Wire.endTransmission() != 0) Serial.println("Error on transmission of command CHANGE DIRECTION");
 }
 
 void sendCommandLED(char leds)
@@ -170,5 +159,5 @@ void sendCommandLED(char leds)
   Wire.write(0x00);
   Wire.write(COM_SETLED);
   Wire.write(leds);
-  if (Wire.endTransmission(ADD_RP6) != 0) Serial.println("Fehler beim Übertragen der LED-Beschaltung");
+  if (Wire.endTransmission() != 0) Serial.println("Error on transmission of command SETLEDS");
 }
